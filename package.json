@@ -1,0 +1,20 @@
+{
+  "name": "claude-memory-bot",
+  "version": "1.0.0",
+  "description": "Multi-platform bot framework powered by Claude CLI with persistent memory system",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "keywords": ["claude", "discord-bot", "ai-bot", "persistent-memory"],
+  "license": "MIT",
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.0",
+    "adm-zip": "^0.5.17",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Runtime data
+temp/
+events.jsonl
+session-map.json
+session-history.json
+
+# Memory user data (managed by bot, backed up via memory/.git)
+memory/*.md
+memory/*_activity.log
+memory/*_archive.md
+!memory/global.md
+
+# Remote dashboard data
+remote-dashboard/data/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
