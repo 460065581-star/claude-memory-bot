@@ -1,18 +1,23 @@
 # Claude Memory Bot
 
 > AI Bot framework powered by Claude CLI with a persistent memory system
+>
+> **Never Loses Memory** | **Zero Extra Token Cost** | **Independent of Session Size**
+
+Memory is stored in standalone files on disk, not inside the conversation context. No matter how many times the session rotates, how long the chat history grows, or if the process crashes — the bot's critical memory stays intact. Memory files are injected only once when a new session starts (~6-10KB), and never grow with the conversation. You won't pay a single extra cent for the memory feature.
 
 ![Dashboard](docs/images/dashboard.png)
 ![Session History](docs/images/session-history.png)
 
 ## Features
 
-- **Persistent Memory** — Hot/cold split, pitfall-first ordering, code-level enforcement. Key info survives across sessions.
-- **Automatic Session Management** — Rotation, context continuity, resume with retry & fallback.
-- **Multi-Platform** — Discord supported out of the box. Extend to Telegram, Slack, etc. by subclassing BaseGateway.
+- **Never Loses Memory** — Memory lives in standalone files, independent of session lifecycle. Rotation, crashes, restarts — nothing affects it. Hot/cold split ensures info is moved, never deleted.
+- **Zero Extra Token Cost** — Memory files are injected once on session creation (~6-10KB). No repeated loading during conversation. Unlike vector DB approaches that require embedding and retrieval on every turn.
+- **Pitfall Prevention** — User-corrected mistakes are auto-pinned to the top. The most critical info sits where LLM attention is strongest, preventing repeat errors at the source.
+- **Code-Level Enforcement** — Doesn't rely on LLM self-discipline. Code automatically detects if the bot wrote memory; if not, it forces a reminder. Auto-alerts on memory bloat. 100% automatic activity logging.
+- **Automatic Session Management** — Rotation, context continuity (last 5 rounds bridged), resume with retry & fallback.
+- **Multi-Platform** — Discord out of the box. Extend to Telegram, Slack, etc. by subclassing BaseGateway.
 - **Web Dashboard** — Local real-time dashboard + optional remote deployment.
-- **Full File Parsing** — PDF / DOCX / XLSX / PPTX / ZIP / EPUB / audio / video.
-- **Safety** — 403 circuit breaker, process watchdog, stuck detection.
 
 ## Quick Start
 

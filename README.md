@@ -3,14 +3,21 @@
 [English](./README_EN.md) | 中文
 
 > 基于 Claude CLI 的 AI Bot 框架，自带持久记忆系统
+>
+> **永不丢失记忆** | **不额外消耗 Token** | **与 Session 大小无关**
+
+记忆存储在独立的文件系统中，不占用对话上下文。无论 Session 轮转多少次、对话历史多长，Bot 的关键记忆始终完整保留。记忆文件只在新建 Session 时加载一次（约 6-10KB），不随对话增长而膨胀，不会因为记忆功能多花一分钱。
 
 ![Dashboard](docs/images/dashboard.png)
 ![Session History](docs/images/session-history.png)
 
 ## 特性
 
-- **持久记忆** -- 热冷分离、踩坑置顶、代码级保障，跨 Session 不丢失关键信息
-- **Session 自动管理** -- 轮转、上下文延续、Resume 重试容错
+- **永不丢失记忆** -- 记忆存储在独立文件中，不依赖 Session 生存周期。Session 轮转、崩溃、重启都不影响。热冷分离确保信息只移动不删除
+- **零额外 Token 消耗** -- 记忆文件仅在新建 Session 时注入一次（~6-10KB），后续对话中不重复加载。不像向量数据库方案每次都要做 embedding 和检索
+- **踩坑防重** -- 被用户纠正过的错误操作自动置顶，LLM 注意力最强的位置放最重要的信息，从根源避免重复犯错
+- **代码级保障** -- 不靠 LLM 自觉。代码自动检测 Bot 是否写了记忆，没写就强制提醒；记忆膨胀自动提醒精简；操作日志 100% 自动记录
+- **Session 自动管理** -- 轮转、上下文延续（最近 5 轮对话桥接）、Resume 重试容错
 - **多平台支持** -- 目前支持 Discord，Telegram 等可通过继承 BaseGateway 扩展
 - **Web 监控看板** -- 本地实时看板 + 可选远程部署
 - **全格式文件解析** -- PDF / DOCX / XLSX / PPTX / ZIP / EPUB / 音视频
