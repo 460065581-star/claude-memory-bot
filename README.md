@@ -4,6 +4,9 @@
 
 > 基于 Claude CLI 的 AI Bot 框架，自带持久记忆系统
 
+![Dashboard](docs/images/dashboard.png)
+![Session History](docs/images/session-history.png)
+
 ## 特性
 
 - **持久记忆** -- 热冷分离、踩坑置顶、代码级保障，跨 Session 不丢失关键信息

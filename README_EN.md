@@ -2,6 +2,9 @@
 
 > AI Bot framework powered by Claude CLI with a persistent memory system
 
+![Dashboard](docs/images/dashboard.png)
+![Session History](docs/images/session-history.png)
+
 ## Features
 
 - **Persistent Memory** — Hot/cold split, pitfall-first ordering, code-level enforcement. Key info survives across sessions.
