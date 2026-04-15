@@ -1,5 +1,7 @@
 # Claude Memory Bot
 
+[English](./README_EN.md) | 中文
+
 > 基于 Claude CLI 的 AI Bot 框架，自带持久记忆系统
 
 ## 特性
@@ -14,7 +16,7 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/yourname/claude-memory-bot.git
+git clone https://github.com/460065581-star/claude-memory-bot.git
 cd claude-memory-bot
 npm install
 cp .env.example .env
