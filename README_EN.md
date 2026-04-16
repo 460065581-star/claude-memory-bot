@@ -16,6 +16,10 @@ Memory is stored in standalone files on disk, not inside the conversation contex
 - **Pitfall Prevention** — User-corrected mistakes are auto-pinned to the top. The most critical info sits where LLM attention is strongest, preventing repeat errors at the source.
 - **Code-Level Enforcement** — Doesn't rely on LLM self-discipline. Code automatically detects if the bot wrote memory; if not, it forces a reminder. Auto-alerts on memory bloat. 100% automatic activity logging.
 - **Automatic Session Management** — Rotation, context continuity (last 5 rounds bridged), resume with retry & fallback.
+- **Streaming Replies** — Each text block is sent to the chat platform in real-time, no waiting for full completion.
+- **Task Abort** — `!stop` command to cancel long-running tasks anytime without losing context.
+- **Browser Automation** — Optional `!browse` command powered by Playwright MCP for web tasks.
+- **Skill Extension** — Custom skill files in `commands/` directory, auto-loaded by Claude CLI.
 - **Multi-Platform** — Discord out of the box. Extend to Telegram, Slack, etc. by subclassing BaseGateway.
 - **Web Dashboard** — Local real-time dashboard + optional remote deployment.
 
@@ -58,6 +62,7 @@ CLAUDE_CLI_PATH=claude       # Path to Claude CLI binary
 WEB_PORT=18792               # Local dashboard port
 REMOTE_DASHBOARD_URL=        # Remote dashboard push URL
 REMOTE_API_SECRET=           # Remote dashboard API secret
+BROWSE_MODEL=sonnet          # Model for browser automation (requires Playwright MCP)
 ```
 
 ## Memory System
@@ -85,6 +90,8 @@ See `docs/` for detailed documentation.
 | `!status` | View current session size and token usage |
 | `!sessions` | View all sessions overview |
 | `!system` | View/set current channel's system prompt |
+| `!stop` | Immediately stop the currently running task |
+| `!browse <task>` | Run a browser automation task (requires Playwright MCP) |
 
 ## Web Dashboard
 
@@ -132,6 +139,7 @@ claude-memory-bot/
 ├── remote-dashboard/             # Standalone remote dashboard
 │   ├── server.js
 │   └── pages.js
+├── commands/                      # Custom skill files (auto-loaded by Claude CLI)
 ├── memory/                       # Memory files directory
 │   └── global.md                 # Global shared memory
 ├── docs/                         # Documentation

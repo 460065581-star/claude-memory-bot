@@ -98,73 +98,54 @@ class BaseGateway {
 
     console.log(`[${channelName}] ${userName}: ${prompt.slice(0, 80)}...`)
 
-    // 6. 入队 → typing → callClaude → 分段发送
+    // 6. 入队 → typing → callClaude（流式发送）
     enqueue(channelId, async () => {
       try {
         await this.showTyping(channelId)
         const typingInterval = setInterval(() => this.showTyping(channelId).catch(() => {}), 8000)
 
-        let response
-        try {
-          response = await callClaude(userPrompt, channelId)
-        } finally {
-          clearInterval(typingInterval)
-        }
-
-        if (!response) {
-          await this.sendMessage(channelId, '（没有回复）')
-          return
-        }
-
-        // 7. 提取 [SEND_FILE:path] 标记（限制在 bot 目录和 temp 目录内）
-        const { existsSync, realpathSync } = require('fs')
-        const { resolve: resolvePath } = require('path')
-        const botDir = config.getBotDir()
-        const tempDir = config.getTempDir()
-        const fileRegex = /\[SEND_FILE:([^\]]+)\]/g
-        const filesToSend = []
-        let cleanResponse = response
-        let fileMatch
-        while ((fileMatch = fileRegex.exec(response)) !== null) {
-          const filePath = fileMatch[1].trim()
-          if (existsSync(filePath)) {
-            // 安全检查：路径必须在 botDir 或 tempDir 下，防止路径遍历
-            try {
-              const realPath = realpathSync(filePath)
-              if (realPath.startsWith(botDir) || realPath.startsWith(tempDir)) {
-                filesToSend.push(filePath)
-              } else {
-                console.log(`[SEND_FILE] blocked path outside allowed dirs: ${filePath}`)
-              }
-            } catch {
-              console.log(`[SEND_FILE] failed to resolve path: ${filePath}`)
+        // ── 流式回调：每个 text block 实时发送到平台 ──
+        const streamOnText = async (text) => {
+          // 提取 [SEND_FILE:path] 并立即发送文件
+          const { existsSync: fileExists, realpathSync: realPath } = require('fs')
+          const botDir = config.getBotDir()
+          const tempDir = config.getTempDir()
+          const fileRegex = /\[SEND_FILE:([^\]]+)\]/g
+          let fileMatch
+          while ((fileMatch = fileRegex.exec(text)) !== null) {
+            const filePath = fileMatch[1].trim()
+            if (fileExists(filePath)) {
+              try {
+                const resolved = realPath(filePath)
+                if (resolved.startsWith(botDir) || resolved.startsWith(tempDir)) {
+                  const filename = filePath.split('/').pop()
+                  await this.sendFile(channelId, filePath, filename)
+                }
+              } catch {}
             }
-          } else {
-            console.log(`[SEND_FILE] file not found: ${filePath}`)
           }
-        }
-        cleanResponse = cleanResponse.replace(fileRegex, '').trim()
-
-        // 发送文本（按平台限制分段）
-        if (cleanResponse) {
-          const parts = splitMessage(cleanResponse, this.messageLimit)
+          const cleanText = text.replace(fileRegex, '').trim()
+          if (!cleanText) return
+          // 分段发送
+          const parts = splitMessage(cleanText, this.messageLimit)
           for (const part of parts) {
             await this.sendMessage(channelId, part)
           }
         }
 
-        // 发送文件
-        for (const fp of filesToSend) {
-          try {
-            const filename = fp.split('/').pop()
-            await this.sendFile(channelId, fp, filename)
-          } catch (fileErr) {
-            console.error(`[SEND_FILE] failed to send ${fp}: ${fileErr.message}`)
-            await this.sendMessage(channelId, `⚠️ 文件发送失败: ${fp.split('/').pop()}`).catch(() => {})
-          }
+        let response
+        try {
+          response = await callClaude(userPrompt, channelId, { onText: streamOnText })
+        } finally {
+          clearInterval(typingInterval)
+        }
+
+        // 如果流式没发出任何内容（空回复），发送 fallback
+        if (!response) {
+          await this.sendMessage(channelId, '（没有回复）')
         }
       } catch (err) {
-        // 8. 错误处理
+        // 7. 错误处理
         console.error('Claude error:', err.message)
         await this.sendMessage(channelId, `❌ 出错了: ${err.message?.slice(0, 300)}`).catch(() => {})
       }

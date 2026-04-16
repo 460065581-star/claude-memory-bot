@@ -22,6 +22,9 @@ const channelUsage = new Map()
 // ── 每频道队列（防止并发 claude 调用）──
 const queues = new Map()
 
+// ── 活跃 Claude 进程追踪（用于 !stop 命令）──
+const activeProcs = new Map() // channelId → { proc, kill() }
+
 function enqueue(channelId, fn) {
   const prev = queues.get(channelId) || Promise.resolve()
   const next = prev.then(fn).catch(e => console.error(`[${channelId}]`, e))
@@ -80,9 +83,13 @@ function handle403(channelId, source) {
 
 /**
  * 底层调用：spawn claude 进程，实时解析 stream-json 输出
+ * @param {string[]} args - claude CLI 参数
+ * @param {string} channelId - 频道 ID
+ * @param {object} [options]
+ * @param {function} [options.onText] - 每个 text block 的回调，用于流式发送
  * @returns {{ resultJson, resultText, allText, raw, toolUse }}
  */
-function runClaude(args, channelId) {
+function runClaude(args, channelId, { onText } = {}) {
   return new Promise((resolve, reject) => {
     const cliPath = process.env.CLAUDE_CLI_PATH || 'claude'
     const proc = spawn(cliPath, args, {
@@ -90,6 +97,27 @@ function runClaude(args, channelId) {
       cwd: config.getBotDir(),
     })
     proc.stdin.end()
+
+    // Track active process for !stop command
+    activeProcs.set(channelId, {
+      proc,
+      kill() {
+        // SIGINT = graceful shutdown, Claude CLI will finish writing and close cleanly
+        try { proc.kill('SIGINT') } catch {}
+        // Force kill after 5 seconds if still alive
+        setTimeout(() => {
+          try {
+            process.kill(proc.pid, 0) // check if still alive
+            proc.kill('SIGKILL')
+            // Also kill child processes
+            try {
+              const children = execSync(`pgrep -P ${proc.pid}`, { encoding: 'utf-8' }).trim().split('\n').filter(Boolean)
+              for (const pid of children) { try { process.kill(parseInt(pid), 'SIGKILL') } catch {} }
+            } catch {}
+          } catch {} // process already exited, good
+        }, 5000)
+      }
+    })
 
     let stdout = ''
     let stderr = ''
@@ -126,6 +154,8 @@ function runClaude(args, channelId) {
                 console.log(`  💬 ${block.text.slice(0, 150)}`)
                 bus.emit('event:push', { type: 'text', channelId, data: block.text })
                 allTextBlocks.push(block.text)
+                // Stream text to caller immediately
+                if (onText) onText(block.text)
                 // 403 检测
                 if (block.text.includes('API Error: 403') || block.text.includes('Request not allowed')) {
                   handle403(channelId, 'stdout')
@@ -154,6 +184,7 @@ function runClaude(args, channelId) {
 
     proc.on('close', code => {
       clearInterval(watchdog)
+      activeProcs.delete(channelId)
       if (code !== 0) reject(new Error(stderr || stdout.slice(0, 300) || `exit code ${code}`))
       else resolve({ resultJson, resultText, allText: allTextBlocks.join('\n\n'), raw: stdout.trim(), toolUse: toolUseBlocks })
     })
@@ -163,9 +194,13 @@ function runClaude(args, channelId) {
 
 /**
  * 高层调用：处理 session 轮转/resume/新建、token 跟踪、记忆检查
+ * @param {string} prompt - 用户消息
+ * @param {string} channelId - 频道 ID
+ * @param {object} [options]
+ * @param {function} [options.onText] - 每个 text block 的回调，用于流式发送
  * @returns {string} Claude 的回复文本
  */
-async function callClaude(prompt, channelId) {
+async function callClaude(prompt, channelId, { onText } = {}) {
   const sessionDir = config.getSessionDir()
   const tempDir = config.getTempDir()
   const botDir = config.getBotDir()
@@ -182,6 +217,7 @@ async function callClaude(prompt, channelId) {
 
   const actualForceNew = forceNew || sessionMgr.shouldStartNewSession(channelId)
 
+  const commandsDir = join(botDir, 'commands')
   const baseArgs = [
     '-p', prompt,
     '--output-format', 'stream-json',
@@ -189,6 +225,7 @@ async function callClaude(prompt, channelId) {
     '--dangerously-skip-permissions',
     '--add-dir', tempDir,
     '--add-dir', botDir,
+    '--add-dir', commandsDir,
   ]
 
   let result
@@ -202,7 +239,7 @@ async function callClaude(prompt, channelId) {
     const recentChat = memoryMgr.extractRecentConversation(oldSessionId)
     const enrichedPrompt = systemPrompt + persistentCtx + recentChat
     console.log(`[${channelId}] new session ${newId.slice(0, 8)}, persistent context ${persistentCtx.length} chars, recent chat ${recentChat.length} chars, old ${oldSessionId.slice(0, 8)}`)
-    result = await runClaude([...baseArgs, '--session-id', newId, '--system-prompt', enrichedPrompt], channelId)
+    result = await runClaude([...baseArgs, '--session-id', newId, '--system-prompt', enrichedPrompt], channelId, { onText })
     // 确认新 session 文件已创建后再更新映射
     if (existsSync(join(sessionDir, newId + '.jsonl'))) {
       sessionMgr.onSessionRotated(channelId, oldSessionId, newId)
@@ -217,7 +254,7 @@ async function callClaude(prompt, channelId) {
       console.log(`[${channelId}] session ${sessionId.slice(0, 8)} has no .jsonl file, auto-creating new session`)
       const newId = crypto.randomUUID()
       const enrichedPrompt = systemPrompt + memoryMgr.loadPersistentContext(channelId) + memoryMgr.extractRecentConversation(sessionId)
-      result = await runClaude([...baseArgs, '--session-id', newId, '--system-prompt', enrichedPrompt], channelId)
+      result = await runClaude([...baseArgs, '--session-id', newId, '--system-prompt', enrichedPrompt], channelId, { onText })
       if (existsSync(join(sessionDir, newId + '.jsonl'))) {
         sessionMgr.updateSessionMapping(channelId, newId)
         console.log(`[${channelId}] new session ${newId.slice(0, 8)} confirmed, session-map updated`)
@@ -230,7 +267,7 @@ async function callClaude(prompt, channelId) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`[${channelId}] trying resume session ${sessionId} (attempt ${attempt})`)
-          result = await runClaude([...baseArgs, '--resume', sessionId], channelId)
+          result = await runClaude([...baseArgs, '--resume', sessionId], channelId, { onText })
           lastError = null
           break
         } catch (e) {
@@ -253,7 +290,7 @@ async function callClaude(prompt, channelId) {
         const recentChat = memoryMgr.extractRecentConversation(sessionId)
         const enrichedPrompt = systemPrompt + persistentCtx + recentChat
         console.log(`[${channelId}] fallback new session ${newId.slice(0, 8)}, persistent context ${persistentCtx.length} chars, recent chat ${recentChat.length} chars`)
-        result = await runClaude([...baseArgs, '--session-id', newId, '--system-prompt', enrichedPrompt], channelId)
+        result = await runClaude([...baseArgs, '--session-id', newId, '--system-prompt', enrichedPrompt], channelId, { onText })
         if (existsSync(join(sessionDir, newId + '.jsonl'))) {
           sessionMgr.updateSessionMapping(channelId, newId)
           console.log(`[${channelId}] fallback session ${newId.slice(0, 8)} confirmed, session-map updated`)
@@ -298,4 +335,18 @@ function getChannelUsage() {
   return channelUsage
 }
 
-module.exports = { enqueue, callClaude, getChannelUsage }
+/**
+ * 停止指定频道正在执行的 Claude 进程
+ * @param {string} channelId
+ * @returns {boolean} 是否成功找到并停止了进程
+ */
+function stopChannel(channelId) {
+  const active = activeProcs.get(channelId)
+  if (active) {
+    active.kill()
+    return true
+  }
+  return false
+}
+
+module.exports = { enqueue, callClaude, getChannelUsage, stopChannel }

@@ -48,6 +48,11 @@ You have a file-based memory system for persisting important information. Chat h
 - **Brief store**: Completed work (one-line summary)
 - **Don't store**: Info available from code/git
 
+### Skill File Management
+- Skill files are stored in the `commands/` directory (not `.claude/commands/`)
+- When creating or modifying skills, write to `commands/xxx.md`, not `.claude/commands/`
+- `.claude/commands/` is a symlink pointing to `commands/`, Claude CLI reads it automatically
+
 ### Hot Memory vs Cold Memory
 - **Hot** `memory/{channel}.md`: Auto-loaded per message. Keep under 15KB.
 - **Cold** `memory/{channel}_archive.md`: Not auto-loaded. For historical details.

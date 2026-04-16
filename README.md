@@ -21,6 +21,10 @@
 - **多平台支持** -- 目前支持 Discord，Telegram 等可通过继承 BaseGateway 扩展
 - **Web 监控看板** -- 本地实时看板 + 可选远程部署
 - **全格式文件解析** -- PDF / DOCX / XLSX / PPTX / ZIP / EPUB / 音视频
+- **流式回复** -- 每个 text block 实时发送到聊天平台，不再等全部完成
+- **任务中止** -- `!stop` 命令随时中止耗时任务，上下文不丢失
+- **浏览器自动化** -- 可选的 `!browse` 命令，通过 Playwright MCP 执行浏览器任务
+- **Skill 扩展** -- `commands/` 目录存放自定义 Skill 文件，Claude CLI 自动加载
 - **安全保护** -- 403 熔断、进程 Watchdog、卡死检测
 
 ## 快速开始
@@ -62,6 +66,7 @@ CLAUDE_CLI_PATH=claude       # Claude CLI 路径
 WEB_PORT=18792               # 本地看板端口
 REMOTE_DASHBOARD_URL=        # 远程看板推送地址
 REMOTE_API_SECRET=           # 远程看板密钥
+BROWSE_MODEL=sonnet          # 浏览器自动化使用的模型（需配置 Playwright MCP）
 ```
 
 ## 记忆系统
@@ -89,6 +94,8 @@ Bot 通过三层保障实现跨 Session 记忆：
 | `!status` | 查看当前会话大小和 Token 用量 |
 | `!sessions` | 查看所有会话概览 |
 | `!system` | 查看/设置当前频道的系统提示词 |
+| `!stop` | 立即中止当前正在执行的任务 |
+| `!browse <任务>` | 用浏览器自动化执行任务（需配置 Playwright MCP） |
 
 ## Web 看板
 
@@ -136,6 +143,7 @@ claude-memory-bot/
 ├── remote-dashboard/             # 远程看板独立服务
 │   ├── server.js
 │   └── pages.js
+├── commands/                      # 自定义 Skill 文件（Claude CLI 自动加载）
 ├── memory/                       # 记忆文件目录
 │   └── global.md                 # 全局共享记忆
 ├── docs/                         # 文档

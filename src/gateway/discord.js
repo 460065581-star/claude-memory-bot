@@ -4,13 +4,16 @@ const { writeFileSync, existsSync, readdirSync, statSync, readFileSync } = requi
 const { join, extname } = require('path')
 const { execSync } = require('child_process')
 
+const { spawn } = require('child_process')
+
 const { BaseGateway } = require('./base-gateway')
 const fileParser = require('../core/file-parser')
 const bus = require('../core/event-bus')
 const sessionMgr = require('../core/session-manager')
 const memoryMgr = require('../core/memory-manager')
 const config = require('../core/config')
-const { getChannelUsage } = require('../core/claude-cli')
+const { getChannelUsage, stopChannel, enqueue } = require('../core/claude-cli')
+const { splitMessage } = require('../core/utils')
 
 class DiscordGateway extends BaseGateway {
   constructor() {
@@ -137,17 +140,31 @@ class DiscordGateway extends BaseGateway {
 
     // ── 命令处理 ──
     if (content === '!help') {
-      return msg.channel.send([
+      const helpLines = [
         '**可用命令：**',
         '`!system` — 查看当前系统提示词',
         '`!system <提示词>` — 设置当前频道/子区的系统提示词',
         '`!reset` — 重置当前会话（清除上下文）',
         '`!status` — 查看当前子区会话大小',
         '`!sessions` — 查看所有会话概览',
-        '`!help` — 显示帮助',
-        '',
-        '直接发消息或图片即可对话，每个频道/子区的会话独立。',
-      ].join('\n'))
+        '`!stop` — 立即中止当前正在执行的任务',
+      ]
+      if (process.env.BROWSE_MODEL) {
+        helpLines.push('`!browse <任务>` — 用浏览器自动化执行任务')
+      }
+      helpLines.push('`!help` — 显示帮助', '', '直接发消息或图片即可对话，每个频道/子区的会话独立。')
+      return msg.channel.send(helpLines.join('\n'))
+    }
+
+    // ── !stop 命令：中止当前频道的 Claude 进程 ──
+    if (content === '!stop' || content === '/stop' || content === '!停止') {
+      const stopped = stopChannel(msg.channelId)
+      if (stopped) {
+        console.log(`[${msg.channel.name}] user stopped active Claude process`)
+        bus.emit('event:push', { type: 'text', channelId: msg.channelId, data: '⛔ 用户中止了当前任务' })
+        return msg.channel.send('⛔ 已中止当前任务。你可以发新消息继续对话，之前的上下文还在。')
+      }
+      return msg.channel.send('当前没有正在执行的任务。')
     }
 
     if (content === '!system') {
@@ -176,6 +193,80 @@ class DiscordGateway extends BaseGateway {
 
     if (content === '!sessions' || content === '!session') {
       return this._handleSessionsCommand(msg)
+    }
+
+    // ── !browse 命令：使用独立 Claude 进程 + Playwright MCP 执行浏览器任务 ──
+    if (content.startsWith('!browse ')) {
+      const browseModel = process.env.BROWSE_MODEL
+      if (!browseModel) {
+        return msg.channel.send('浏览器功能未配置。请在 .env 中设置 `BROWSE_MODEL`（如 `sonnet`）。')
+      }
+      const browseTask = content.slice(8).trim()
+      if (!browseTask) return msg.channel.send('用法: `!browse <任务描述或URL>`')
+
+      return enqueue(msg.channelId, async () => {
+        await msg.channel.sendTyping()
+        const typingInterval = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000)
+
+        try {
+          await msg.channel.send('🌐 正在用浏览器自动化执行任务...')
+          const tempDir = config.getTempDir()
+          const browsePrompt = `请用 Playwright MCP 工具完成以下浏览器任务：\n${browseTask}\n\n完成后总结你做了什么和结果。如果需要截图请保存到 ${tempDir}/ 目录。`
+          const cliPath = process.env.CLAUDE_CLI_PATH || 'claude'
+
+          const browseResult = await new Promise((resolve, reject) => {
+            const proc = spawn(cliPath, [
+              '-p', browsePrompt,
+              '--output-format', 'stream-json',
+              '--model', browseModel,
+              '--dangerously-skip-permissions',
+            ], { stdio: ['pipe', 'pipe', 'pipe'], cwd: config.getBotDir() })
+            proc.stdin.end()
+
+            let allText = []
+            let stderr = ''
+
+            proc.stdout.on('data', chunk => {
+              const lines = chunk.toString().split('\n').filter(Boolean)
+              for (const line of lines) {
+                try {
+                  const evt = JSON.parse(line)
+                  if (evt.type === 'assistant' && evt.message?.content) {
+                    for (const block of evt.message.content) {
+                      if (block.type === 'text' && block.text?.trim()) {
+                        allText.push(block.text)
+                      }
+                    }
+                  }
+                } catch {}
+              }
+            })
+            proc.stderr.on('data', d => { stderr += d })
+            proc.on('close', code => {
+              if (code !== 0 && allText.length === 0) reject(new Error(stderr || `exit code ${code}`))
+              else resolve(allText.join('\n\n'))
+            })
+            proc.on('error', reject)
+
+            // 5 分钟超时
+            setTimeout(() => { try { proc.kill() } catch {} }, 300000)
+          })
+
+          clearInterval(typingInterval)
+
+          if (!browseResult?.trim()) {
+            return msg.channel.send('浏览器任务完成，但没有返回内容。')
+          }
+
+          const parts = splitMessage(browseResult)
+          for (const part of parts) {
+            await msg.channel.send(part)
+          }
+        } catch (err) {
+          clearInterval(typingInterval)
+          await msg.channel.send(`❌ 浏览器任务失败: ${err.message?.slice(0, 300)}`).catch(() => {})
+        }
+      })
     }
 
     // ── 普通消息 → Claude ──
